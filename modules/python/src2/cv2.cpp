@@ -1,4 +1,5 @@
-#if defined(_MSC_VER) && (_MSC_VER >= 1800)
+//warning number '5033' not a valid compiler warning in vc12
+#if defined(_MSC_VER) && (_MSC_VER > 1800)
 // eliminating duplicated round() declaration
 #define HAVE_ROUND 1
 #pragma warning(push)
@@ -6,9 +7,16 @@
 #endif
 #include <math.h>
 #include <Python.h>
-#if defined(_MSC_VER) && (_MSC_VER >= 1800)
+#if defined(_MSC_VER) && (_MSC_VER > 1800)
 #pragma warning(pop)
 #endif
+
+#define CV_PY_FN_WITH_KW_(fn, flags) (PyCFunction)(void*)(PyCFunctionWithKeywords)(fn), (flags) | METH_VARARGS | METH_KEYWORDS
+#define CV_PY_FN_NOARGS_(fn, flags) (PyCFunction)(fn), (flags) | METH_NOARGS
+
+#define CV_PY_FN_WITH_KW(fn) CV_PY_FN_WITH_KW_(fn, 0)
+#define CV_PY_FN_NOARGS(fn) CV_PY_FN_NOARGS_(fn, 0)
+
 
 #define MODULESTR "cv2"
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
@@ -112,6 +120,7 @@ typedef std::vector<Vec6f> vector_Vec6f;
 typedef std::vector<Vec4i> vector_Vec4i;
 typedef std::vector<Rect> vector_Rect;
 typedef std::vector<Rect2d> vector_Rect2d;
+typedef std::vector<RotatedRect> vector_RotatedRect;
 typedef std::vector<KeyPoint> vector_KeyPoint;
 typedef std::vector<Mat> vector_Mat;
 typedef std::vector<std::vector<Mat> > vector_vector_Mat;
@@ -182,7 +191,7 @@ public:
             _sizes[i] = sizes[i];
         if( cn > 1 )
             _sizes[dims++] = cn;
-        PyObject* o = PyArray_SimpleNew(dims, _sizes, typenum);
+        PyObject* o = PyArray_SimpleNew(dims, _sizes.data(), typenum);
         if(!o)
             CV_Error_(Error::StsError, ("The numpy array of typenum=%d, ndims=%d can not be created", typenum, dims));
         return allocate(o, dims0, sizes, type, step);
@@ -474,8 +483,14 @@ typedef struct {
 static bool PyObject_IsUMat(PyObject *o);
 
 // UMatWrapper init - try to map arguments from python to UMat constructors
-static int UMatWrapper_init(cv2_UMatWrapperObject *self, PyObject *args, PyObject *kwds)
+static int UMatWrapper_init(PyObject* self_, PyObject *args, PyObject *kwds)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+    {
+        PyErr_SetString(PyExc_TypeError, "Internal error");
+        return -1;
+    }
     self->um = NULL;
     {
         // constructor ()
@@ -548,8 +563,11 @@ static void UMatWrapper_dealloc(cv2_UMatWrapperObject* self)
 
 // UMatWrapper.get() - returns numpy array by transferring UMat data to Mat and than wrapping it to numpy array
 // (using numpy allocator - and so without unnecessary copy)
-static PyObject * UMatWrapper_get(cv2_UMatWrapperObject* self)
+static PyObject * UMatWrapper_get(PyObject* self_, PyObject * /*args*/)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+        return failmsgp("Incorrect type of self (must be 'cv2_UMatWrapperObject')");
     Mat m;
     m.allocator = &g_numpyAllocator;
     self->um->copyTo(m);
@@ -558,8 +576,11 @@ static PyObject * UMatWrapper_get(cv2_UMatWrapperObject* self)
 }
 
 // UMatWrapper.handle() - returns the OpenCL handle of the UMat object
-static PyObject * UMatWrapper_handle(cv2_UMatWrapperObject* self, PyObject *args, PyObject *kwds)
+static PyObject * UMatWrapper_handle(PyObject* self_, PyObject *args, PyObject *kwds)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+        return failmsgp("Incorrect type of self (must be 'cv2_UMatWrapperObject')");
     const char *kwlist[] = {"accessFlags", NULL};
     int accessFlags;
     if (!PyArg_ParseTupleAndKeywords(args, kwds, "i", (char**) kwlist, &accessFlags))
@@ -568,51 +589,60 @@ static PyObject * UMatWrapper_handle(cv2_UMatWrapperObject* self, PyObject *args
 }
 
 // UMatWrapper.isContinuous() - returns true if the matrix data is continuous
-static PyObject * UMatWrapper_isContinuous(cv2_UMatWrapperObject* self)
+static PyObject * UMatWrapper_isContinuous(PyObject* self_, PyObject * /*args*/)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+        return failmsgp("Incorrect type of self (must be 'cv2_UMatWrapperObject')");
     return PyBool_FromLong(self->um->isContinuous());
 }
 
 // UMatWrapper.isContinuous() - returns true if the matrix is a submatrix of another matrix
-static PyObject * UMatWrapper_isSubmatrix(cv2_UMatWrapperObject* self)
+static PyObject * UMatWrapper_isSubmatrix(PyObject* self_, PyObject * /*args*/)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+        return failmsgp("Incorrect type of self (must be 'cv2_UMatWrapperObject')");
     return PyBool_FromLong(self->um->isSubmatrix());
 }
 
 // UMatWrapper.context() - returns the OpenCL context used by OpenCV UMat
-static PyObject * UMatWrapper_context(cv2_UMatWrapperObject*)
+static PyObject * UMatWrapper_context(PyObject* /*self_*/, PyObject * /*args*/)
 {
     return PyLong_FromVoidPtr(cv::ocl::Context::getDefault().ptr());
 }
 
 // UMatWrapper.context() - returns the OpenCL queue used by OpenCV UMat
-static PyObject * UMatWrapper_queue(cv2_UMatWrapperObject*)
+static PyObject * UMatWrapper_queue(PyObject* /*self_*/, PyObject * /*args*/)
 {
     return PyLong_FromVoidPtr(cv::ocl::Queue::getDefault().ptr());
 }
 
-static PyObject * UMatWrapper_offset_getter(cv2_UMatWrapperObject* self, void*)
+static PyObject * UMatWrapper_offset_getter(PyObject* self_, void*)
 {
+    cv2_UMatWrapperObject* self = (cv2_UMatWrapperObject*)self_;
+    if (self == NULL)
+        return failmsgp("Incorrect type of self (must be 'cv2_UMatWrapperObject')");
     return PyLong_FromSsize_t(self->um->offset);
 }
 
 static PyMethodDef UMatWrapper_methods[] = {
-        {"get", (PyCFunction)UMatWrapper_get, METH_NOARGS,
+        {"get", CV_PY_FN_NOARGS(UMatWrapper_get),
                 "Returns numpy array"
         },
-        {"handle", (PyCFunction)UMatWrapper_handle, METH_VARARGS | METH_KEYWORDS,
+        {"handle", CV_PY_FN_WITH_KW(UMatWrapper_handle),
                 "Returns UMat native handle"
         },
-        {"isContinuous", (PyCFunction)UMatWrapper_isContinuous, METH_NOARGS,
+        {"isContinuous", CV_PY_FN_NOARGS(UMatWrapper_isContinuous),
                 "Returns true if the matrix data is continuous"
         },
-        {"isSubmatrix", (PyCFunction)UMatWrapper_isSubmatrix, METH_NOARGS,
+        {"isSubmatrix", CV_PY_FN_NOARGS(UMatWrapper_isSubmatrix),
                 "Returns true if the matrix is a submatrix of another matrix"
         },
-        {"context", (PyCFunction)UMatWrapper_context, METH_NOARGS | METH_STATIC,
+        {"context", CV_PY_FN_NOARGS_(UMatWrapper_context, METH_STATIC),
                 "Returns OpenCL context handle"
         },
-        {"queue", (PyCFunction)UMatWrapper_queue, METH_NOARGS | METH_STATIC,
+        {"queue", CV_PY_FN_NOARGS_(UMatWrapper_queue, METH_STATIC),
                 "Returns OpenCL queue handle"
         },
         {NULL, NULL, 0, NULL}  /* Sentinel */
@@ -768,7 +798,7 @@ PyObject* pyopencv_from(const bool& value)
 template<>
 bool pyopencv_to(PyObject* obj, bool& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     int _val = PyObject_IsTrue(obj);
@@ -787,7 +817,7 @@ PyObject* pyopencv_from(const size_t& value)
 template<>
 bool pyopencv_to(PyObject* obj, size_t& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     value = (int)PyLong_AsUnsignedLong(obj);
@@ -803,7 +833,7 @@ PyObject* pyopencv_from(const int& value)
 template<>
 bool pyopencv_to(PyObject* obj, int& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(PyInt_Check(obj))
@@ -824,7 +854,7 @@ PyObject* pyopencv_from(const uchar& value)
 template<>
 bool pyopencv_to(PyObject* obj, uchar& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     int ivalue = (int)PyInt_AsLong(obj);
@@ -841,7 +871,7 @@ PyObject* pyopencv_from(const double& value)
 template<>
 bool pyopencv_to(PyObject* obj, double& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(!!PyInt_CheckExact(obj))
@@ -860,7 +890,7 @@ PyObject* pyopencv_from(const float& value)
 template<>
 bool pyopencv_to(PyObject* obj, float& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(!!PyInt_CheckExact(obj))
@@ -885,10 +915,10 @@ PyObject* pyopencv_from(const String& value)
 template<>
 bool pyopencv_to(PyObject* obj, String& value, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
-    char* str = PyString_AsString(obj);
+    const char* str = PyString_AsString(obj);
     if(!str)
         return false;
     value = String(str);
@@ -898,7 +928,7 @@ bool pyopencv_to(PyObject* obj, String& value, const char* name)
 template<>
 bool pyopencv_to(PyObject* obj, Size& sz, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "ii", &sz.width, &sz.height) > 0;
@@ -913,7 +943,7 @@ PyObject* pyopencv_from(const Size& sz)
 template<>
 bool pyopencv_to(PyObject* obj, Size_<float>& sz, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "ff", &sz.width, &sz.height) > 0;
@@ -928,7 +958,7 @@ PyObject* pyopencv_from(const Size_<float>& sz)
 template<>
 bool pyopencv_to(PyObject* obj, Rect& r, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "iiii", &r.x, &r.y, &r.width, &r.height) > 0;
@@ -943,7 +973,7 @@ PyObject* pyopencv_from(const Rect& r)
 template<>
 bool pyopencv_to(PyObject* obj, Rect2d& r, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "dddd", &r.x, &r.y, &r.width, &r.height) > 0;
@@ -958,7 +988,7 @@ PyObject* pyopencv_from(const Rect2d& r)
 template<>
 bool pyopencv_to(PyObject* obj, Range& r, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(PyObject_Size(obj) == 0)
@@ -978,7 +1008,7 @@ PyObject* pyopencv_from(const Range& r)
 template<>
 bool pyopencv_to(PyObject* obj, Point& p, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(!!PyComplex_CheckExact(obj))
@@ -994,7 +1024,7 @@ bool pyopencv_to(PyObject* obj, Point& p, const char* name)
 template<>
 bool pyopencv_to(PyObject* obj, Point2f& p, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(!!PyComplex_CheckExact(obj))
@@ -1010,7 +1040,7 @@ bool pyopencv_to(PyObject* obj, Point2f& p, const char* name)
 template<>
 bool pyopencv_to(PyObject* obj, Point2d& p, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     if(!!PyComplex_CheckExact(obj))
@@ -1026,7 +1056,7 @@ bool pyopencv_to(PyObject* obj, Point2d& p, const char* name)
 template<>
 bool pyopencv_to(PyObject* obj, Point3f& p, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "fff", &p.x, &p.y, &p.z) > 0;
@@ -1035,7 +1065,7 @@ bool pyopencv_to(PyObject* obj, Point3f& p, const char* name)
 template<>
 bool pyopencv_to(PyObject* obj, Point3d& p, const char* name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj || obj == Py_None)
         return true;
     return PyArg_ParseTuple(obj, "ddd", &p.x, &p.y, &p.z) > 0;
@@ -1061,7 +1091,7 @@ PyObject* pyopencv_from(const Point3f& p)
 
 static bool pyopencv_to(PyObject* obj, Vec4d& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "dddd", &v[0], &v[1], &v[2], &v[3]) > 0;
@@ -1074,7 +1104,7 @@ bool pyopencv_to(PyObject* obj, Vec4d& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec4f& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "ffff", &v[0], &v[1], &v[2], &v[3]) > 0;
@@ -1087,7 +1117,7 @@ bool pyopencv_to(PyObject* obj, Vec4f& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec4i& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "iiii", &v[0], &v[1], &v[2], &v[3]) > 0;
@@ -1100,7 +1130,7 @@ bool pyopencv_to(PyObject* obj, Vec4i& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec3d& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "ddd", &v[0], &v[1], &v[2]) > 0;
@@ -1113,7 +1143,7 @@ bool pyopencv_to(PyObject* obj, Vec3d& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec3f& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "fff", &v[0], &v[1], &v[2]) > 0;
@@ -1126,7 +1156,7 @@ bool pyopencv_to(PyObject* obj, Vec3f& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec3i& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "iii", &v[0], &v[1], &v[2]) > 0;
@@ -1139,7 +1169,7 @@ bool pyopencv_to(PyObject* obj, Vec3i& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec2d& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "dd", &v[0], &v[1]) > 0;
@@ -1152,7 +1182,7 @@ bool pyopencv_to(PyObject* obj, Vec2d& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec2f& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "ff", &v[0], &v[1]) > 0;
@@ -1165,7 +1195,7 @@ bool pyopencv_to(PyObject* obj, Vec2f& v, const char* name)
 
 static bool pyopencv_to(PyObject* obj, Vec2i& v, ArgInfo info)
 {
-    (void)info;
+    CV_UNUSED(info);
     if (!obj)
         return true;
     return PyArg_ParseTuple(obj, "ii", &v[0], &v[1]) > 0;
@@ -1492,10 +1522,22 @@ template<> struct pyopencvVecConverter<String>
     }
 };
 
+template<> struct pyopencvVecConverter<RotatedRect>
+{
+    static bool to(PyObject* obj, std::vector<RotatedRect>& value, const ArgInfo info)
+    {
+        return pyopencv_to_generic_vec(obj, value, info);
+    }
+    static PyObject* from(const std::vector<RotatedRect>& value)
+    {
+        return pyopencv_from_generic_vec(value);
+    }
+};
+
 template<>
 bool pyopencv_to(PyObject *obj, TermCriteria& dst, const char *name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj)
         return true;
     return PyArg_ParseTuple(obj, "iid", &dst.type, &dst.maxCount, &dst.epsilon) > 0;
@@ -1510,7 +1552,7 @@ PyObject* pyopencv_from(const TermCriteria& src)
 template<>
 bool pyopencv_to(PyObject *obj, RotatedRect& dst, const char *name)
 {
-    (void)name;
+    CV_UNUSED(name);
     if(!obj)
         return true;
     return PyArg_ParseTuple(obj, "(ff)(ff)f", &dst.center.x, &dst.center.y, &dst.size.width, &dst.size.height, &dst.angle) > 0;
@@ -1534,8 +1576,6 @@ PyObject* pyopencv_from(const Moments& m)
                          "nu20", m.nu20, "nu11", m.nu11, "nu02", m.nu02,
                          "nu30", m.nu30, "nu21", m.nu21, "nu12", m.nu12, "nu03", m.nu03);
 }
-
-#include "pyopencv_custom_headers.h"
 
 static int OnError(int status, const char *func_name, const char *err_msg, const char *file_name, int line, void *userdata)
 {
@@ -1774,15 +1814,20 @@ static int convert_to_char(PyObject *o, char *dst, const char *name = "no_name")
 #  pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
+#include "pyopencv_custom_headers.h"
 #include "pyopencv_generated_types.h"
 #include "pyopencv_generated_funcs.h"
 
 static PyMethodDef special_methods[] = {
-  {"redirectError", (PyCFunction)pycvRedirectError, METH_VARARGS | METH_KEYWORDS, "redirectError(onError) -> None"},
+  {"redirectError", CV_PY_FN_WITH_KW(pycvRedirectError), "redirectError(onError) -> None"},
 #ifdef HAVE_OPENCV_HIGHGUI
-  {"createTrackbar", pycvCreateTrackbar, METH_VARARGS, "createTrackbar(trackbarName, windowName, value, count, onChange) -> None"},
-  {"createButton", (PyCFunction)pycvCreateButton, METH_VARARGS | METH_KEYWORDS, "createButton(buttonName, onChange [, userData, buttonType, initialButtonState]) -> None"},
-  {"setMouseCallback", (PyCFunction)pycvSetMouseCallback, METH_VARARGS | METH_KEYWORDS, "setMouseCallback(windowName, onMouse [, param]) -> None"},
+  {"createTrackbar", (PyCFunction)pycvCreateTrackbar, METH_VARARGS, "createTrackbar(trackbarName, windowName, value, count, onChange) -> None"},
+  {"createButton", CV_PY_FN_WITH_KW(pycvCreateButton), "createButton(buttonName, onChange [, userData, buttonType, initialButtonState]) -> None"},
+  {"setMouseCallback", CV_PY_FN_WITH_KW(pycvSetMouseCallback), "setMouseCallback(windowName, onMouse [, param]) -> None"},
+#endif
+#ifdef HAVE_OPENCV_DNN
+  {"dnn_registerLayer", CV_PY_FN_WITH_KW(pyopencv_cv_dnn_registerLayer), "registerLayer(type, class) -> None"},
+  {"dnn_unregisterLayer", CV_PY_FN_WITH_KW(pyopencv_cv_dnn_unregisterLayer), "unregisterLayer(type) -> None"},
 #endif
   {NULL, NULL},
 };

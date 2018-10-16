@@ -23,6 +23,10 @@ void simplifySubgraphs(tensorflow::GraphDef& net);
 
 Mat getTensorContent(const tensorflow::TensorProto &tensor);
 
+void releaseTensor(tensorflow::TensorProto* tensor);
+
+void sortByExecutionOrder(tensorflow::GraphDef& net);
+
 CV__DNN_EXPERIMENTAL_NS_END
 }}  // namespace dnn, namespace cv
 

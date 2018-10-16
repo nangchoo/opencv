@@ -214,7 +214,7 @@ protected:
             }
 
             CvMat* m = (CvMat*)fs["test_mat"].readObj();
-            CvMat _test_mat = test_mat;
+            CvMat _test_mat = cvMat(test_mat);
             double max_diff = 0;
             CvMat stub1, _test_stub1;
             cvReshape(m, &stub1, 1, 0);
@@ -234,7 +234,7 @@ protected:
                 cvReleaseMat(&m);
 
             CvMatND* m_nd = (CvMatND*)fs["test_mat_nd"].readObj();
-            CvMatND _test_mat_nd = test_mat_nd;
+            CvMatND _test_mat_nd = cvMatND(test_mat_nd);
 
             if( !m_nd || !CV_IS_MATND(m_nd) )
             {
@@ -263,7 +263,7 @@ protected:
 
             MatND mat_nd2;
             fs["test_mat_nd"] >> mat_nd2;
-            CvMatND m_nd2 = mat_nd2;
+            CvMatND m_nd2 = cvMatND(mat_nd2);
             cvGetMat(&m_nd2, &stub, 0, 1);
             cvReshape(&stub, &stub1, 1, 0);
 
@@ -522,33 +522,23 @@ protected:
 
 TEST(Core_InputOutput, misc) { CV_MiscIOTest test; test.safe_run(); }
 
-/*class CV_BigMatrixIOTest : public cvtest::BaseTest
+#if 0 // 4+ GB of data, 40+ GB of estimated result size, it is very slow
+BIGDATA_TEST(Core_InputOutput, huge)
 {
-public:
-    CV_BigMatrixIOTest() {}
-    ~CV_BigMatrixIOTest() {}
-protected:
-    void run(int)
+    RNG& rng = theRNG();
+    int N = 1000, M = 1200000;
+    std::cout << "Allocating..." << std::endl;
+    Mat mat(M, N, CV_32F);
+    std::cout << "Initializing..." << std::endl;
+    rng.fill(mat, RNG::UNIFORM, 0, 1);
+    std::cout << "Writing..." << std::endl;
     {
-        try
-        {
-            RNG& rng = theRNG();
-            int N = 1000, M = 1200000;
-            Mat mat(M, N, CV_32F);
-            rng.fill(mat, RNG::UNIFORM, 0, 1);
-            FileStorage fs(cv::tempfile(".xml"), FileStorage::WRITE);
-            fs << "mat" << mat;
-            fs.release();
-        }
-        catch(...)
-        {
-            ts->set_failed_test_info(cvtest::TS::FAIL_MISMATCH);
-        }
+        FileStorage fs(cv::tempfile(".xml"), FileStorage::WRITE);
+        fs << "mat" << mat;
+        fs.release();
     }
-};
-
-TEST(Core_InputOutput, huge) { CV_BigMatrixIOTest test; test.safe_run(); }
-*/
+}
+#endif
 
 TEST(Core_globbing, accuracy)
 {

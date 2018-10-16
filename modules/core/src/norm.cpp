@@ -496,7 +496,7 @@ static bool ocl_norm( InputArray _src, int normType, InputArray _mask, double & 
 #ifdef HAVE_IPP
 static bool ipp_norm(Mat &src, int normType, Mat &mask, double &result)
 {
-    CV_INSTRUMENT_REGION_IPP()
+    CV_INSTRUMENT_REGION_IPP();
 
 #if IPP_VERSION_X100 >= 700
     size_t total_size = src.total();
@@ -625,7 +625,7 @@ static bool ipp_norm(Mat &src, int normType, Mat &mask, double &result)
 
 double cv::norm( InputArray _src, int normType, InputArray _mask )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     normType &= NORM_TYPE_MASK;
     CV_Assert( normType == NORM_INF || normType == NORM_L1 ||
@@ -710,7 +710,7 @@ double cv::norm( InputArray _src, int normType, InputArray _mask )
         int cellSize = normType == NORM_HAMMING ? 1 : 2;
 
         const Mat* arrays[] = {&src, 0};
-        uchar* ptrs[1];
+        uchar* ptrs[1] = {};
         NAryMatIterator it(arrays, ptrs);
         int total = (int)it.size;
         int result = 0;
@@ -727,7 +727,7 @@ double cv::norm( InputArray _src, int normType, InputArray _mask )
     CV_Assert( func != 0 );
 
     const Mat* arrays[] = {&src, &mask, 0};
-    uchar* ptrs[2];
+    uchar* ptrs[2] = {};
     union
     {
         double d;
@@ -857,7 +857,7 @@ namespace cv
 {
 static bool ipp_norm(InputArray _src1, InputArray _src2, int normType, InputArray _mask, double &result)
 {
-    CV_INSTRUMENT_REGION_IPP()
+    CV_INSTRUMENT_REGION_IPP();
 
 #if IPP_VERSION_X100 >= 700
     Mat src1 = _src1.getMat(), src2 = _src2.getMat(), mask = _mask.getMat();
@@ -1005,6 +1005,16 @@ static bool ipp_norm(InputArray _src1, InputArray _src2, int normType, InputArra
                 type == CV_16UC3 ? (ippiMaskNormDiffFuncC3)ippiNormDiff_L2_16u_C3CMR :
                 type == CV_32FC3 ? (ippiMaskNormDiffFuncC3)ippiNormDiff_L2_32f_C3CMR :
                 0) : 0;
+            if (cv::ipp::getIppTopFeatures() & (
+#if IPP_VERSION_X100 >= 201700
+                    ippCPUID_AVX512F |
+#endif
+                    ippCPUID_AVX2)
+            ) // IPP_DISABLE_NORM_16UC3_mask_small (#11399)
+            {
+                if (normType == NORM_L1 && type == CV_16UC3 && sz.width < 16)
+                    return false;
+            }
             if( ippiNormDiff_C3CMR )
             {
                 Ipp64f norm1, norm2, norm3;
@@ -1077,7 +1087,7 @@ static bool ipp_norm(InputArray _src1, InputArray _src2, int normType, InputArra
 
 double cv::norm( InputArray _src1, InputArray _src2, int normType, InputArray _mask )
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     CV_Assert( _src1.sameSize(_src2) && _src1.type() == _src2.type() );
 
@@ -1158,7 +1168,7 @@ double cv::norm( InputArray _src1, InputArray _src2, int normType, InputArray _m
         int cellSize = normType == NORM_HAMMING ? 1 : 2;
 
         const Mat* arrays[] = {&src1, &src2, 0};
-        uchar* ptrs[2];
+        uchar* ptrs[2] = {};
         NAryMatIterator it(arrays, ptrs);
         int total = (int)it.size;
         int result = 0;
@@ -1175,7 +1185,7 @@ double cv::norm( InputArray _src1, InputArray _src2, int normType, InputArray _m
     CV_Assert( func != 0 );
 
     const Mat* arrays[] = {&src1, &src2, &mask, 0};
-    uchar* ptrs[3];
+    uchar* ptrs[3] = {};
     union
     {
         double d;
@@ -1243,7 +1253,7 @@ cv::Hamming::ResultType cv::Hamming::operator()( const unsigned char* a, const u
 
 double cv::PSNR(InputArray _src1, InputArray _src2)
 {
-    CV_INSTRUMENT_REGION()
+    CV_INSTRUMENT_REGION();
 
     //Input arrays must have depth CV_8U
     CV_Assert( _src1.depth() == CV_8U && _src2.depth() == CV_8U );

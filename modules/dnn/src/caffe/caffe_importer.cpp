@@ -250,16 +250,13 @@ public:
         blobShapeFromProto(pbBlob, shape);
 
         dstBlob.create((int)shape.size(), &shape[0], CV_32F);
-        float *dstData = dstBlob.ptr<float>();
         if (pbBlob.data_size())
         {
             // Single precision floats.
             CV_Assert(pbBlob.data_size() == (int)dstBlob.total());
 
             CV_DbgAssert(pbBlob.GetDescriptor()->FindFieldByLowercaseName("data")->cpp_type() == FieldDescriptor::CPPTYPE_FLOAT);
-
-            for (int i = 0; i < pbBlob.data_size(); i++)
-                dstData[i] = pbBlob.data(i);
+            Mat(dstBlob.dims, &dstBlob.size[0], CV_32F, (void*)pbBlob.data().data()).copyTo(dstBlob);
         }
         else
         {
@@ -281,18 +278,27 @@ public:
         int li;
         for (li = 0; li != netBinary.layer_size(); li++)
         {
-            if (netBinary.layer(li).name() == name)
+            const caffe::LayerParameter& binLayer = netBinary.layer(li);
+            // Break if the layer name is the same and the blobs are not cleared
+            if (binLayer.name() == name && binLayer.blobs_size() != 0)
                 break;
         }
 
-        if (li == netBinary.layer_size() || netBinary.layer(li).blobs_size() == 0)
+        if (li == netBinary.layer_size())
             return;
 
-        const caffe::LayerParameter &binLayer = netBinary.layer(li);
-        layerParams.blobs.resize(binLayer.blobs_size());
-        for (int bi = 0; bi < binLayer.blobs_size(); bi++)
+        caffe::LayerParameter* binLayer = netBinary.mutable_layer(li);
+        const int numBlobs = binLayer->blobs_size();
+        layerParams.blobs.resize(numBlobs);
+        for (int bi = 0; bi < numBlobs; bi++)
         {
-            blobFromProto(binLayer.blobs(bi), layerParams.blobs[bi]);
+            blobFromProto(binLayer->blobs(bi), layerParams.blobs[bi]);
+        }
+        binLayer->clear_blobs();
+        CV_Assert(numBlobs == binLayer->blobs().ClearedCount());
+        for (int bi = 0; bi < numBlobs; bi++)
+        {
+            delete binLayer->mutable_blobs()->ReleaseCleared();
         }
     }
 
@@ -355,7 +361,7 @@ public:
             {
                 if (!layerParams.get<bool>("use_global_stats", true))
                 {
-                    CV_Assert(layer.bottom_size() == 1, layer.top_size() == 1);
+                    CV_Assert_N(layer.bottom_size() == 1, layer.top_size() == 1);
 
                     LayerParams mvnParams;
                     mvnParams.set("eps", layerParams.get<float>("eps", 1e-5));
@@ -447,6 +453,15 @@ Net readNetFromCaffe(const char *bufferProto, size_t lenProto,
     Net net;
     caffeImporter.populateNet(net);
     return net;
+}
+
+Net readNetFromCaffe(const std::vector<uchar>& bufferProto, const std::vector<uchar>& bufferModel)
+{
+    const char* bufferProtoPtr = reinterpret_cast<const char*>(&bufferProto[0]);
+    const char* bufferModelPtr = bufferModel.empty() ? NULL :
+                                 reinterpret_cast<const char*>(&bufferModel[0]);
+    return readNetFromCaffe(bufferProtoPtr, bufferProto.size(),
+                            bufferModelPtr, bufferModel.size());
 }
 
 #endif //HAVE_PROTOBUF

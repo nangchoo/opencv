@@ -39,10 +39,11 @@ def execute(cmd, cwd = None):
 
 def getXCodeMajor():
     ret = check_output(["xcodebuild", "-version"])
-    m = re.match(r'XCode\s+(\d)\..*', ret, flags=re.IGNORECASE)
+    m = re.match(r'Xcode\s+(\d+)\..*', ret, flags=re.IGNORECASE)
     if m:
         return int(m.group(1))
-    return 0
+    else:
+        raise Exception("Failed to parse Xcode version")
 
 class Builder:
     def __init__(self, opencv, contrib, dynamic, bitcodedisabled, exclude, targets):
@@ -183,7 +184,7 @@ class Builder:
         cmakecmd = self.getCMakeArgs(arch, target) + \
             (["-DCMAKE_TOOLCHAIN_FILE=%s" % toolchain] if toolchain is not None else [])
         if target.lower().startswith("iphoneos"):
-            cmakecmd.append("-DENABLE_NEON=ON")
+            cmakecmd.append("-DCPU_BASELINE=NEON;FP16")
         cmakecmd.append(self.opencv)
         cmakecmd.extend(cmakeargs)
         execute(cmakecmd, cwd = builddir)

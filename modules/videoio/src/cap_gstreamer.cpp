@@ -125,7 +125,7 @@ private:
         gst_init(NULL, NULL);
         guint major, minor, micro, nano;
         gst_version(&major, &minor, &micro, &nano);
-        if (GST_VERSION_MAJOR == major)
+        if (GST_VERSION_MAJOR != major)
         {
             CV_WARN("incompatible gstreamer version");
         }
@@ -189,7 +189,7 @@ public:
     virtual double getProperty(int propId) const CV_OVERRIDE;
     virtual bool setProperty(int propId, double value) CV_OVERRIDE;
     virtual bool isOpened() const CV_OVERRIDE;
-    virtual int getCaptureDomain() CV_OVERRIDE; // Return the type of the capture object: CAP_VFW, etc...
+    virtual int getCaptureDomain() CV_OVERRIDE { return cv::CAP_GSTREAMER; }
     bool open(int id);
     bool open(const String &filename_);
     static void newPad(GstElement * /*elem*/, GstPad     *pad, gpointer    data);
@@ -268,7 +268,6 @@ bool GStreamerCapture::grabFrame()
     sample = gst_app_sink_pull_sample(GST_APP_SINK(sink));
     if(!sample)
         return false;
-    gst_sample_ref(sample);
 #endif
 
     if (isPosFramesEmulated)
@@ -579,8 +578,6 @@ bool GStreamerCapture::isOpened() const
     return pipeline != NULL;
 }
 
-int GStreamerCapture::getCaptureDomain() { return CAP_GSTREAMER; }
-
 /*!
  * \brief CvCapture_GStreamer::open Open the given file with gstreamer
  * \param type CvCapture type. One of CV_CAP_GSTREAMER_*
@@ -614,10 +611,12 @@ int GStreamerCapture::getCaptureDomain() { return CAP_GSTREAMER; }
  */
 bool GStreamerCapture::open(int id)
 {
+    gst_initializer::init();
+
     if (!is_gst_element_exists("v4l2src"))
         return false;
     std::ostringstream desc;
-    desc << "v4l2src device-name=/dev/video" << id
+    desc << "v4l2src device=/dev/video" << id
              << " ! " << COLOR_ELEM
              << " ! appsink";
     return open(desc.str());
@@ -1225,15 +1224,20 @@ Ptr<IVideoCapture> cv::createGStreamerCapture(int index)
 class CvVideoWriter_GStreamer : public CvVideoWriter
 {
 public:
-    CvVideoWriter_GStreamer() { init(); }
+    CvVideoWriter_GStreamer()
+        : pipeline(0), source(0), encodebin(0), file(0), buffer(0), input_pix_fmt(0),
+          num_frames(0), framerate(0)
+    {
+    }
     virtual ~CvVideoWriter_GStreamer() CV_OVERRIDE { close(); }
+
+    int getCaptureDomain() const CV_OVERRIDE { return cv::CAP_GSTREAMER; }
 
     virtual bool open( const char* filename, int fourcc,
                        double fps, CvSize frameSize, bool isColor );
     virtual void close();
     virtual bool writeFrame( const IplImage* image ) CV_OVERRIDE;
 protected:
-    void init();
     const char* filenameToMimetype(const char* filename);
     GstElement* pipeline;
     GstElement* source;
@@ -1245,22 +1249,6 @@ protected:
     int num_frames;
     double framerate;
 };
-
-/*!
- * \brief CvVideoWriter_GStreamer::init
- * initialise all variables
- */
-void CvVideoWriter_GStreamer::init()
-{
-    pipeline = NULL;
-    source = NULL;
-    encodebin = NULL;
-    file = NULL;
-    buffer = NULL;
-
-    num_frames = 0;
-    framerate = 0;
-}
 
 /*!
  * \brief CvVideoWriter_GStreamer::close
@@ -1283,17 +1271,19 @@ void CvVideoWriter_GStreamer::close()
         //wait for EOS to trickle down the pipeline. This will let all elements finish properly
         GstBus* bus = gst_element_get_bus(pipeline);
         GstMessage *msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE, (GstMessageType)(GST_MESSAGE_ERROR | GST_MESSAGE_EOS));
-        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR)
+        if (!msg || GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR)
         {
             CV_WARN("Error during VideoWriter finalization\n");
+            if(msg != NULL)
+            {
+                gst_message_unref(msg);
+                g_object_unref(G_OBJECT(bus));
+            }
             return;
         }
 
-        if(msg != NULL)
-        {
-            gst_message_unref(msg);
-            g_object_unref(G_OBJECT(bus));
-        }
+        gst_message_unref(msg);
+        g_object_unref(G_OBJECT(bus));
 
         status = gst_element_set_state (pipeline, GST_STATE_NULL);
         if (status == GST_STATE_CHANGE_ASYNC)
@@ -1657,6 +1647,8 @@ bool CvVideoWriter_GStreamer::open( const char * filename, int fourcc,
         gst_pad_link(sinkPeer, srcPeer);
     }
 #endif
+
+    GST_DEBUG_BIN_TO_DOT_FILE(GST_BIN(pipeline), GST_DEBUG_GRAPH_SHOW_ALL, "write-pipeline");
 
     stateret = gst_element_set_state(GST_ELEMENT(pipeline), GST_STATE_PLAYING);
     if(stateret  == GST_STATE_CHANGE_FAILURE) {
