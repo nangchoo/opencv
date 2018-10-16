@@ -103,9 +103,6 @@
 #cmakedefine HAVE_IPP_ICV
 #cmakedefine HAVE_IPP_IW
 
-/* Intel IPP Async */
-#cmakedefine HAVE_IPP_A
-
 /* JPEG-2000 codec */
 #cmakedefine HAVE_JASPER
 
@@ -147,6 +144,9 @@
 /* OpenNI library */
 #cmakedefine HAVE_OPENNI2
 
+/* librealsense library */
+#cmakedefine HAVE_LIBREALSENSE
+
 /* PNG codec */
 #cmakedefine HAVE_PNG
 
@@ -170,6 +170,9 @@
 
 /* Intel Threading Building Blocks */
 #cmakedefine HAVE_TBB
+
+/* Ste||ar Group High Performance ParallelX */
+#cmakedefine HAVE_HPX
 
 /* TIFF codec */
 #cmakedefine HAVE_TIFF
@@ -241,5 +244,7 @@
 /* OpenCV trace utilities */
 #cmakedefine OPENCV_TRACE
 
+/* Library QR-code decoding */
+#cmakedefine HAVE_QUIRC
 
 #endif // OPENCV_CVCONFIG_H_INCLUDED
